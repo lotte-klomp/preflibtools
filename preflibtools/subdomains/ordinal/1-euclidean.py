@@ -3,28 +3,25 @@
 """
 from preflibtools.instances import OrdinalInstance
 from preflibtools.properties.singlepeakedness import *
+from single_crossing import is_single_crossing
+from helper import get_alternatives
 import itertools
 from mip import *
 
-
 # for plotting, delete later
 import matplotlib.pyplot as plt
-import numpy as np
-from single_crossing import is_single_crossing
 
-def get_alternatives(instance):
-    """
-    Get the set of alternatives from the instance.
-    """
-    alternatives = set()
-    for alt,  _ in instance.alternatives_name.items():
-        alternatives.add(alt)
+def append_to_axis(axis: list, a: int, b:int):
+    """Adds alternatives a and b to the axis in such a way that a is to the
+    left of b.
 
-    return alternatives
+    Args:
+        axis (list): the axis to append to
+        a (int): first alternative
+        b (int): second alternative
 
-def append_to_axis(axis: list, a, b):
-    """
-    Append the alternatives a, b to the axis such that a is to the left of b.
+    Returns:
+        (list): the updated axis
     """
     if a not in axis:
         axis.append(a)
@@ -41,9 +38,12 @@ def append_to_axis(axis: list, a, b):
 
     return axis
 
-def restrict_preferences(instance, C_set_plus):
-    """
-    Restrict the preferences of the voters to elements in C_set_plus.
+
+def restrict_preferences(instance: OrdinalInstance, C_set_plus: set):
+    """Restrict the preferences of the voters to elements in C_set_plus.
+
+    Returns:
+        (list): the restricted preferences
     """
     flattened = instance.flatten_strict()
 
@@ -54,16 +54,25 @@ def restrict_preferences(instance, C_set_plus):
 
     return preferences
 
-def solve_LP(preferences, axis):
+
+def solve_LP(preferences: list, axis: list):
+    """Attempts to solve the linear program for the 1-Euclidean domain,
+    given the preferences and the axis. Makes use of the MIP library.
+
+    Args:
+        preferences (list): the preferences of the voters
+        axis (list): the axis for which the profile is single-crossing
+
+    Returns:
+        (model.status, list, dict): tuple containing the status of the LP, the
+        voters and the alternatives if the LP is feasible, None otherwise.
+    """
     # create pairs (a, b) such that a is to the left of b in the axis
     pairs = [(a, b) for a, b in itertools.permutations(axis, 2)
              if axis.index(a) < axis.index(b)]
 
     n = len(preferences)
     m = len(axis)
-
-    # TODO: check if the total number of inequalities is correct
-    total = int((n + 1) * m * (m - 1) / 2)
 
     model = Model()
 
@@ -104,6 +113,7 @@ def solve_LP(preferences, axis):
 
     return None, None, None
 
+
 def plot_results(mappings, n, m):
     """
     Plot the results of the linear program as a scatter plot with 1 dimension.
@@ -135,14 +145,25 @@ def plot_results(mappings, n, m):
 
     plt.show()
 
-def gen_sets(v_1, C_set_plus, C_set_minus):
+
+def gen_sets(v_1: list, C_set_plus: set, C_set_minus: set):
+    """Generates the sets F and G for the 1-Euclidean domain.
+
+    Args:
+        v_1 (list): the preferences of the first voter
+        C_set_plus (set): the set of alternatives in C_set_plus
+        C_set_minus (set): the set of alternatives in C_set_minus
+
+    Returns:
+        (list, list, int): tuple containing the sets F and G, and the number of
+        sets in F (k).
+    """
     f, g = dict(), dict()
     ind = 0
 
     # if C_set_minus is empty
     if not C_set_minus:
         return [C_set_plus], [], 1
-
 
     while C_set_minus and C_set_plus:
         tmp = None
@@ -175,8 +196,20 @@ def gen_sets(v_1, C_set_plus, C_set_minus):
 
     return list(f.values()), list(g.values()), len(f)
 
-def is_Euclidean(instance):
+
+def is_Euclidean(instance: OrdinalInstance):
+    """Check if the given instance is in the 1-Euclidean domain.
+
+    Args:
+        instance (OrdinalInstance): the preference profile
+
+    Returns:
+        (Boolean, dict): True and the mapping of voters to alternatives if the
+        instance is in the 1-Euclidean domain, False and None otherwise.
+    """
     is_SC, _ = is_single_crossing(instance)
+
+    # TODO: instance = instance.flatten_strict()?
 
     # veryify that E is single-crossing
     if is_SC:
@@ -191,7 +224,6 @@ def is_Euclidean(instance):
         c_plus = v_n[0]
 
         C_set = get_alternatives(instance)
-
 
         # TODO: more efficient way to get the number of alternatives
         # number of alternatives
@@ -225,7 +257,7 @@ def is_Euclidean(instance):
                 and v_n.index(b) < v_n.index(a)):
                 if gamma[a] == 1 or gamma[b] == 2:
                     # Colouring stage cannot be completed
-                    return None
+                    return False, None
                 if gamma[a] == 3:
                     gamma[a] = 2
                 if gamma[b] == 3:
@@ -312,19 +344,7 @@ def is_Euclidean(instance):
                 for l in range(len(g[i])):
                     y[g[i].pop() + n - 1] = x_r + ((i + 1)**2) * delta + 2 * delta + l / m * delta
 
-            plot_results(y, n, m)
+            return True, y
 
-            return y
-
-    return None
-
-
-instance = OrdinalInstance()
-# instance.parse_file("./test_profiles/1-EU/SP_SC_EU.soc")
-# instance.parse_file("./test_profiles/1-EU/SP_SC_not_EU.soc")
-# instance.parse_file("./test_profiles/1-EU/EU_test_1.soc")
-instance.parse_file("/home/lotte/Documents/Thesis/preflibtools/preflibtools/subdomains/ordinal/EU_test_1.soc")
-
-
-is_Euclidean(instance)
+    return False, None
 

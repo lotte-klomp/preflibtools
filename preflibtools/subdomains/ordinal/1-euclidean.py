@@ -4,9 +4,8 @@
 from preflibtools.instances import OrdinalInstance
 from preflibtools.properties.singlepeakedness import *
 import itertools
-import pyomo.environ as pyo
-from pyomo.opt import SolverStatus, TerminationCondition
-import numpy as np
+from mip import *
+
 
 # for plotting, delete later
 import matplotlib.pyplot as plt
@@ -55,12 +54,7 @@ def restrict_preferences(instance, C_set_plus):
 
     return preferences
 
-def generate_LP(preferences, axis):
-    """
-    Generates inequalities for the linear program.
-
-    Returns the mapping of the voters and alternatives to the axis.
-    """
+def solve_LP(preferences, axis):
     # create pairs (a, b) such that a is to the left of b in the axis
     pairs = [(a, b) for a, b in itertools.permutations(axis, 2)
              if axis.index(a) < axis.index(b)]
@@ -68,70 +62,47 @@ def generate_LP(preferences, axis):
     n = len(preferences)
     m = len(axis)
 
-    print("axis: ", axis)
-
     # TODO: check if the total number of inequalities is correct
     total = int((n + 1) * m * (m - 1) / 2)
 
-    model = pyo.ConcreteModel()
-    model.x = pyo.VarList(domain=pyo.Reals)
+    model = Model()
 
     # add variables for the voters and alternatives
-    # index 1 to n for the voters
-    # index n + 1 to n + m for the alternatives
-    # (indexing starts from 1 in pyomo)
-    for i in range(n + m):
-        model.x.add()
-
-    model.constraints = pyo.ConstraintList()
+    vars = [model.add_var(var_type=CONTINUOUS, name=f"voter_{i}") for i in range(n)]
+    vars += [model.add_var(var_type=CONTINUOUS, name=f"alternative_{i}") for i in range(m)]
 
     for pair in pairs:
         # add axis constraints
-        model.constraints.add(expr=model.x[n + pair[0]] + 1
-                              <= model.x[n + pair[1]])
+        model += vars[n + pair[0] - 1] + 1 <= vars[n + pair[1] - 1]
 
         # add voter constraints
         for i in range(n):
             # if voter prefers a to b
             if preferences[i].index(pair[0]) < preferences[i].index(pair[1]):
-                model.constraints.add(expr=model.x[i + 1] + 1
-                                      <= (model.x[n + pair[0]]
-                                      + model.x[n + pair[1]]) / 2)
+                model += vars[i] + 1 <= (vars[n + pair[0] - 1] + vars[n + pair[1] - 1]) / 2
             else:
-                model.constraints.add(expr=model.x[i + 1]
-                                      >= (model.x[n + pair[1]]
-                                      + model.x[n + pair[0]]) / 2 + 1)
+                model += vars[i] >= (vars[n + pair[1] - 1] + vars[n + pair[0] - 1]) / 2 + 1
 
-    # model.pprint()
+    model.objective = minimize(xsum(vars))
 
-    opt = pyo.SolverFactory('glpk')
-    results = opt.solve(model)
+    # suppress log
+    model.verbose = 0
 
-    # TODO: check if solver status is accessible without running the solver
-    # LP HAS NO PRIMAL FEASIBLE SOLUTION results in TerminationCondition.other
-    if (results.solver.status == SolverStatus.ok and
-        (results.solver.termination_condition
-        != TerminationCondition.infeasible) and
-        results.solver.termination_condition
-        != TerminationCondition.other):
-        print("Feasible solution found")
-        voters = []
-        for i in range(n):
-            voters.append(pyo.value(model.x[i + 1]))
+    status = model.optimize()
 
-        # alternatives = []
-        # for i in range(m):
-        #     alternatives.append(pyo.value(model.x[n + i + 1]))
+    if status == OptimizationStatus.OPTIMAL or status == OptimizationStatus.FEASIBLE:
+
         alternatives = dict()
         for i in range(m):
-            alternatives[axis[i]] = pyo.value(model.x[n + i + 1])
+            alternatives[axis[i]] = model.vars[n + i].x
 
-        return results, voters, alternatives
+        voters = []
+        for i in range(n):
+            voters.append(model.vars[i].x)
 
-    else:
-        print("Infeasible solution found")
-        return None, None, None
+        return status, voters, alternatives
 
+    return None, None, None
 
 def plot_results(mappings, n, m):
     """
@@ -207,7 +178,6 @@ def gen_sets(v_1, C_set_plus, C_set_minus):
 def is_Euclidean(instance):
     is_SC, _ = is_single_crossing(instance)
 
-    print("Single crossing: ", is_SC)
     # veryify that E is single-crossing
     if is_SC:
         # get the first voter
@@ -219,9 +189,6 @@ def is_Euclidean(instance):
         v_n = list(instance.flatten_strict()[-1][0])
         # get the top of the last voter
         c_plus = v_n[0]
-
-        print("c_minus: ", c_minus)
-        print("c_plus: ", c_plus)
 
         C_set = get_alternatives(instance)
 
@@ -257,7 +224,7 @@ def is_Euclidean(instance):
             if (v_1.index(a) < v_1.index(b)
                 and v_n.index(b) < v_n.index(a)):
                 if gamma[a] == 1 or gamma[b] == 2:
-                    print("Colouring stage cannot be completed.")
+                    # Colouring stage cannot be completed
                     return None
                 if gamma[a] == 3:
                     gamma[a] = 2
@@ -284,23 +251,12 @@ def is_Euclidean(instance):
                     and v_n.index(b) < v_n.index(a))):
                 axis = append_to_axis(axis, a, b)
 
-
-        print("C_set_plus: ", C_set_plus)
-        print("The axis is: ", axis)
-        print("gamma: ", gamma)
-        print("C_set_minus: ", C_set_minus)
-        print("v_1: ", v_1)
-
         # restrict the preferences of the voters to elements in C_set_plus
         preferences = restrict_preferences(instance, C_set_plus)
 
-        print("preferences: ", preferences)
-
         # TODO: return voters as dict for mapping?
         # TODO: rename alternatives to x for consistency
-        results, voters, alternatives = generate_LP(preferences, axis)
-
-        print("alternatives: ", alternatives)
+        results, voters, alternatives = solve_LP(preferences, axis)
 
         # check if the LP is feasible
         if (results is not None):
@@ -320,22 +276,10 @@ def is_Euclidean(instance):
             x_l = min(tmp)
             x_r = max(tmp)
 
-            print("k: ", k)
-
-            print("x_l: ", x_l)
-            print("x_r: ", x_r)
-
-            print("f: ", f)
-            print("g: ", g)
-
-            print("votes: ", voters)
-            print("alternatives: ", alternatives)
-
             tmp = voters + [alternatives[i] for i in C_set_plus]
 
             # TODO: see previous comment, delta currently as value
             delta = max([abs(x - y) for x, y in itertools.permutations(tmp, 2)])
-            print("delta: ", delta)
 
             y = dict()
             # add mapping of voters
@@ -368,7 +312,6 @@ def is_Euclidean(instance):
                 for l in range(len(g[i])):
                     y[g[i].pop() + n - 1] = x_r + ((i + 1)**2) * delta + 2 * delta + l / m * delta
 
-            print("mapping: ", y)
             plot_results(y, n, m)
 
             return y
@@ -380,8 +323,8 @@ instance = OrdinalInstance()
 # instance.parse_file("./test_profiles/1-EU/SP_SC_EU.soc")
 # instance.parse_file("./test_profiles/1-EU/SP_SC_not_EU.soc")
 # instance.parse_file("./test_profiles/1-EU/EU_test_1.soc")
-# instance.parse_file("./test_profiles/1-EU/test_grey_mapping.soc")
+instance.parse_file("/home/lotte/Documents/Thesis/preflibtools/preflibtools/subdomains/ordinal/EU_test_1.soc")
 
 
-# is_Euclidean(instance)
+is_Euclidean(instance)
 

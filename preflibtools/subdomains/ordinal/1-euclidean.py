@@ -39,6 +39,7 @@ def append_to_axis(axis: list, a: int, b:int):
     return axis
 
 
+# TODO: switch to helper.py function
 def restrict_preferences(instance: OrdinalInstance, C_set_plus: set):
     """Restrict the preferences of the voters to elements in C_set_plus.
 

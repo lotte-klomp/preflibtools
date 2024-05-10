@@ -30,3 +30,18 @@ def get_voters(instance: OrdinalInstance):
         voters.append(pref)
 
     return voters
+
+def restrict_preferences(instance: OrdinalInstance, alternatives_set: set):
+    """Restrict the preferences of the voters to elements in alternatives_set.
+
+    Returns:
+        (list): the restricted preferences
+    """
+    flattened = instance.flatten_strict()
+
+    preferences = []
+    for (pref, _) in flattened:
+        pref = [c for c in pref if c in alternatives_set]
+        preferences.append(pref)
+
+    return preferences

@@ -100,7 +100,7 @@ def is_single_crossing(instance: OrdinalInstance):
             return False, None
 
     # order voters by score
-    n = instance.num_voters
+    n = instance.num_unique_orders
     m = instance.num_alternatives
 
     P_order = []
@@ -122,4 +122,3 @@ def is_single_crossing(instance: OrdinalInstance):
         return True, P_order
     else:
         return False, None
-

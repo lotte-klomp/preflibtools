@@ -1,10 +1,8 @@
 from preflibtools.instances import OrdinalInstance
-from helper import get_voters, get_alternatives, restrict_preferences
+from helper import get_alternatives, restrict_preferences
 import random
 import networkx as nx
 import matplotlib.pyplot as plt
-
-
 
 def get_bottom_alts(instance: list):
     """Get the set of last ranked alternatives in the instance.
